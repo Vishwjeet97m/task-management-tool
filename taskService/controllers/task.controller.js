@@ -3,18 +3,19 @@ import Task from '../models/task.model.js';
 import { sendResponse } from "../utils/commonUtils.js";
 import { HTTP_STATUS } from "../utils/httpStatus.js";
 import { fetchUserById } from '../api/userService.js';
+import { fetchProjectById } from '../api/projectService.js';
 
 
 
 // create new task
 export const createTask = async (req, res) => {
     try {
-        const { task_name, description, assignee } = req.body;
+        const { task_name, description, assignee, project } = req.body;
         const { id:assigner } = req.user
 
         // Validate required fields
-        if (!task_name || !description || !assignee) {
-            return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'All fields are required');
+        if (!task_name || !description || !assignee || !project) {
+            return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'some fields are missing');
         }
 
         // Create a new task
@@ -22,7 +23,8 @@ export const createTask = async (req, res) => {
             task_name,
             description,
             assignee,
-            assigner
+            assigner,
+            project
         });
 
         // Save the task to the database
@@ -31,49 +33,9 @@ export const createTask = async (req, res) => {
         sendResponse(res, HTTP_STATUS.CREATED, true, 'Task created successfully', newTask);
     } catch (error) {
         console.error('Error creating task:', error);
-        sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, 'Internal server error');
+        sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
     }
 };
-
-
-
-// export const getTaskById = async (req, res) => {
-
-//     try {
-//         const USER_SERVICE_URL = process.env.USER_SERVICE_URL 
-//         const { id } = req.params;
-//         const token = req.header("Authorization"); 
-
-//         // Find the task by ID
-//         const task = await Task.findById(id);
-//         if (!task) {
-//             return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Task not found');
-//         }
-
-//         // Define headers with Authorization token
-//         const headers = { Authorization: token };
-
-//         // Fetch Assignee and Assigner details with JWT token in headers
-//         const assigneePromise = axios.get(`${USER_SERVICE_URL}/${task.assignee}`, { headers });
-//         const assignerPromise = axios.get(`${USER_SERVICE_URL}/${task.assigner}`, { headers });
-
-//         // Resolve both API calls concurrently
-//         const [assigneeResponse, assignerResponse] = await Promise.all([assigneePromise, assignerPromise]);
-
-//         // Construct the response with user details
-//         const taskWithUserDetails = {
-//             ...task.toObject(),
-//             assignee: assigneeResponse.data.data, // Extract user data
-//             assigner: assignerResponse.data.data  // Extract user data
-//         };
-
-//         sendResponse(res, HTTP_STATUS.OK, true, 'Task retrieved successfully', taskWithUserDetails);
-//     } catch (error) {
-//         console.error('Error retrieving task:', error);
-//         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
-//     }
-// };
-
 
 export const getTaskById = async (req, res) => {
     try {
@@ -86,26 +48,27 @@ export const getTaskById = async (req, res) => {
             return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Task not found');
         }
 
-        // Fetch Assignee and Assigner details from User Service
-        const [assignee, assigner] = await Promise.all([
+        // Fetch Assignee, Assigner, and Project details from respective services
+        const [assignee, assigner, project] = await Promise.all([
             fetchUserById(task.assignee, token),
-            fetchUserById(task.assigner, token)
+            fetchUserById(task.assigner, token),
+            fetchProjectById(task.project, token),
         ]);
 
-        // Construct the response with user details
-        const taskWithUserDetails = {
+        // Construct the response with user and project details
+        const taskWithDetails = {
             ...task.toObject(),
             assignee,
-            assigner
+            assigner,
+            project
         };
 
-        sendResponse(res, HTTP_STATUS.OK, true, 'Task retrieved successfully', taskWithUserDetails);
+        sendResponse(res, HTTP_STATUS.OK, true, 'Task retrieved successfully', taskWithDetails);
     } catch (error) {
         console.error('Error retrieving task:', error);
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
     }
 };
-
 
 // update task
 export const updateTaskById = async (req, res) => {
@@ -120,20 +83,22 @@ export const updateTaskById = async (req, res) => {
             return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Task not found');
         }
 
-        // Fetch updated Assignee and Assigner details
-        const [assignee, assigner] = await Promise.all([
+        // Fetch updated Assignee, Assigner, and Project details
+        const [assignee, assigner, project] = await Promise.all([
             fetchUserById(updatedTask.assignee, token),
-            fetchUserById(updatedTask.assigner, token)
+            fetchUserById(updatedTask.assigner, token),
+            fetchProjectById(updatedTask.project, token),
         ]);
 
-        // Construct response with updated user details
-        const updatedTaskWithUserDetails = {
+        // Construct response with updated user and project details
+        const updatedTaskWithDetails = {
             ...updatedTask.toObject(),
             assignee,
-            assigner
+            assigner,
+            project
         };
 
-        sendResponse(res, HTTP_STATUS.OK, true, 'Task updated successfully', updatedTaskWithUserDetails);
+        sendResponse(res, HTTP_STATUS.OK, true, 'Task updated successfully', updatedTaskWithDetails);
     } catch (error) {
         console.error('Error updating task:', error);
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
@@ -159,6 +124,7 @@ export const deleteTaskById = async (req, res) => {
     }
 };
 
+
 // fetch task by user id
 export const getTasksByUserId = async (req, res) => {
     try {
@@ -179,6 +145,24 @@ export const getTasksByUserId = async (req, res) => {
         const user = await fetchUserById(id, token);
 
         sendResponse(res, HTTP_STATUS.OK, true, 'Tasks retrieved successfully', { user, tasks });
+    } catch (error) {
+        console.error('Error retrieving tasks:', error);
+        sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
+    }
+};
+
+// fetch tasks
+export const getTasks = async (req, res) => {
+    try {
+        const query = Object.keys(req.query).length ? req.query : {};  // Retrieve query parameters
+
+        // Find tasks based on query filters
+        const tasks = await Task.find(query);
+        if (!tasks.length) {
+            return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'No tasks found');
+        }
+
+        sendResponse(res, HTTP_STATUS.OK, true, 'Tasks retrieved successfully', tasks);
     } catch (error) {
         console.error('Error retrieving tasks:', error);
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
