@@ -21,6 +21,16 @@ export const register = async (req, res) => {
         // crete new user
         const user = new User({ username, email, password, role });
         await user.save();
+
+        // Call Notification Service to send a welcome email
+        const subject = "Welcome to Our Platform!";
+        const message = `Hello ${username}, welcome to our platform. We're glad to have you!`;
+
+        try {
+            await sendUserNotification(user._id, user.email, subject, message);
+        } catch (notifyError) {
+            console.error("Error sending notification:", notifyError.message);
+        }
         sendResponse(res, HTTP_STATUS.CREATED, true, "User registered successfully", user);
     } catch (error) {
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);

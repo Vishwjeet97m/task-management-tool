@@ -12,6 +12,7 @@ export const createTask = async (req, res) => {
     try {
         const { task_name, description, assignee, project } = req.body;
         const { id:assigner } = req.user
+        const token = req.headers.authorization; // Get auth token
 
         // Validate required fields
         if (!task_name || !description || !assignee || !project) {
@@ -29,6 +30,25 @@ export const createTask = async (req, res) => {
 
         // Save the task to the database
         await newTask.save();
+
+        // Fetch assignee details from User Service
+        const assigneeData = await fetchUserById(assignee, token);
+        if (!assigneeData || !assigneeData.email) {
+            return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, "Assignee email not found");
+        }
+
+        // Extract assignee email
+        const assigneeEmail = assigneeData.email;
+
+         // Send Notification to the Assignee
+         await sendUserNotification(
+            assignee,
+            assigneeEmail,
+            "New Task Assigned",
+            `A new task "${task_name}" has been assigned to you.`,
+            token
+        );
+
 
         sendResponse(res, HTTP_STATUS.CREATED, true, 'Task created successfully', newTask);
     } catch (error) {

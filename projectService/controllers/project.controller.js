@@ -3,12 +3,14 @@ import Project from '../models/project.model.js';
 import { sendResponse } from "../utils/commonUtils.js";
 import { HTTP_STATUS } from "../utils/httpStatus.js";
 import { fetchUserById } from '../api/userService.js';
+import { sendUserNotification } from '../api/notificationService.js';
 
 
 // Create a new project
 export const createProject = async (req, res) => {
     try {
       const { name, description, isActive, status, ownerId } = req.body;
+      const token = req.headers.authorization; 
   
       // Validate required fields
       if (!name) return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'please enter project name');
@@ -17,6 +19,21 @@ export const createProject = async (req, res) => {
       // Create project
       const newProject = new Project({ name, description, isActive, status, ownerId });
       await newProject.save();
+
+      const ownerData = await fetchUserById(ownerId, token);
+      if (!ownerData || !ownerData.email) {
+        return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, "Owner email not found");
+      }
+      // Extract owner email
+      const ownerEmail = ownerData.email;
+
+      await sendUserNotification(
+        ownerId,
+        ownerEmail,
+        "Project Created Successfully",
+        `Your project "${name}" has been created successfully.`,
+        token
+      );
   
       sendResponse(res, HTTP_STATUS.OK, true, "Project created successfully", newProject);
     } catch (error) {
