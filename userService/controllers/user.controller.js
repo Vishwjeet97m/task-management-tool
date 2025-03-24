@@ -64,3 +64,30 @@ export const assignRole = async (req, res) => {
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
     }
 };
+
+
+export const searchUsers = async (req, res) => {
+    try {
+        const { query } = req.query;
+        console.log("enter user->",query);
+
+        if (!query) {
+            return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, "Query parameter is required");
+        }
+
+        // Search users where username or email contains the query (case-insensitive)
+        const regexQuery = new RegExp(query, "i");
+
+        const users = await User.find({
+            $or: [
+                { username: { $regex: regexQuery } },
+                { email: { $regex: regexQuery } }
+            ]
+        }).select("-password");
+
+        console.log("users===>", users);
+        sendResponse(res, HTTP_STATUS.OK, true, "Users retrieved successfully", users);
+    } catch (error) {
+        sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
+    }
+};

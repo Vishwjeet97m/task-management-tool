@@ -23,5 +23,5 @@ app.use("/api/task",verifyToken, taskRoutes);
 
 
 app.listen(port,()=>{
-  console.log(`user service is running on port ${port}`);
+  console.log(`task service is running on port ${port}`);
 })

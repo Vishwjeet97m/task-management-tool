@@ -23,5 +23,5 @@ app.use("/api/comment",verifyToken, commentRoutes);
 
 
 app.listen(port,()=>{
-  console.log(`user service is running on port ${port}`);
+  console.log(`comment service is running on port ${port}`);
 })

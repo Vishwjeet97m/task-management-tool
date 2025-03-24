@@ -4,6 +4,7 @@ import { sendResponse } from "../utils/commonUtils.js";
 import { HTTP_STATUS } from "../utils/httpStatus.js";
 import { fetchUserById } from '../api/userService.js';
 import { fetchProjectById } from '../api/projectService.js';
+import {sendUserNotification} from '../api/notificationService.js'
 
 
 
@@ -188,3 +189,30 @@ export const getTasks = async (req, res) => {
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
     }
 };
+
+
+export const searchTasks = async (req, res) => {
+    try {
+        const { query } = req.query;
+        console.log("query in search task controller",query);
+
+        if (!query) {
+            return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, "Query parameter is required");
+        }
+
+        // Search tasks where title or description contains the query (case-insensitive)
+
+        const tasks = await Task.find({
+            $or: [
+                { title: { $regex: query, $options: "i" } }, // Case-insensitive search in title
+                { description: { $regex: query, $options: "i" } } // Case-insensitive search in description
+            ]
+        });
+        console.log("taskssss->", tasks);
+
+        sendResponse(res, HTTP_STATUS.OK, true, "Tasks retrieved successfully", tasks);
+    } catch (error) {
+        sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
+    }
+};
+

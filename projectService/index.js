@@ -20,5 +20,5 @@ app.use("/api/project",verifyToken, projectRoutes);
 
 
 app.listen(port,()=>{
-  console.log(`user service is running on port ${port}`);
+  console.log(`project service is running on port ${port}`);
 })

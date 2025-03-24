@@ -11,7 +11,7 @@ export const sendUserNotification = async (userId, email, subject, message, toke
         const headers = { Authorization: token }; // Pass token if needed
 
         // Call Notification Service API
-        const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notifications/send`, 
+        const response = await axios.post(`${NOTIFICATION_SERVICE_URL}/notifications/send`, 
         { userId, email, subject, message }, { headers });
 
         return response.data; // Return response from Notification Service

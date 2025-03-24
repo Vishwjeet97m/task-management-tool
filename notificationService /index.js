@@ -22,5 +22,5 @@ app.use("/api/notifications", notificationRoutes);
 
 
 app.listen(port,()=>{
-  console.log(`user service is running on port ${port}`);
+  console.log(`notification service is running on port ${port}`);
 })

@@ -143,3 +143,25 @@ export const getProjectsByUserId = async (req, res) => {
     }
 };
 
+// search projects
+export const searchProjects = async (req, res) => {
+    try {
+        const { query } = req.query;
+        console.log("1111");
+        if (!query) {
+            return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, "Query parameter is required");
+        }
+
+        // Search projects where name or description contains the query (case-insensitive)
+        const projects = await Project.find({
+            $or: [
+                { name: { $regex: query, $options: "i" } }, // Case-insensitive search in name
+                { description: { $regex: query, $options: "i" } } // Case-insensitive search in description
+            ]
+        });
+
+        sendResponse(res, HTTP_STATUS.OK, true, "Projects retrieved successfully", projects);
+    } catch (error) {
+        sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
+    }
+};
