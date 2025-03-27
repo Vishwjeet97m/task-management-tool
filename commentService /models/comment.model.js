@@ -25,6 +25,12 @@ const commentSchema = new mongoose.Schema(
         return !this.task;
       },
     },
+    attachments: [
+      {
+        fileName: String,
+        fileUrl: String
+      }
+    ],
     isActive:{
       type: Boolean,
       required: true,
@@ -33,6 +39,12 @@ const commentSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+commentSchema.pre(/^find/, function (next) {
+  this.where({ isActive: true });
+  next();
+});
+
 
 const Comment =  mongoose.model("Comment", commentSchema);
 

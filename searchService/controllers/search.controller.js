@@ -32,7 +32,7 @@ export const search = async (req, res) => {
                 searchProjects(query, token),
                 searchUsers(query, token),
             ]);
-            console.log("enter3-->", tasks, projects, users );
+            console.log("enter3-->", "tasksssssssssssssssss---->",tasks,"projects---------->", projects,"users------------>", users );
 
             // Assign only properties that have data
             if (tasks.length) searchResults.tasks = tasks;

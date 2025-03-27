@@ -5,13 +5,14 @@ import { HTTP_STATUS } from "../utils/httpStatus.js";
 import { fetchUserById } from '../api/userService.js';
 import { fetchProjectById } from '../api/projectService.js';
 import {sendUserNotification} from '../api/notificationService.js'
+import { getObjectPresignedUrl, putObjectPresignedUrl } from '../config/awsConfig.js';
 
 
 
 // create new task
 export const createTask = async (req, res) => {
     try {
-        const { task_name, description, assignee, project } = req.body;
+        const { task_name, description, assignee, project, attachments } = req.body;
         const { id:assigner } = req.user
         const token = req.headers.authorization; // Get auth token
 
@@ -20,13 +21,34 @@ export const createTask = async (req, res) => {
             return sendResponse(res, HTTP_STATUS.BAD_REQUEST, false, 'some fields are missing');
         }
 
+        let presignedUrls = []; // Store pre-signed URLs for frontend
+        let storedAttachments = []; // Store S3 paths for MongoDB
+
+        if (attachments && attachments.length > 0) {
+            for (let file of attachments) {
+                const { fileName, fileType } = file;
+                
+                // Generate pre-signed URL for each attachment
+                const presignedUrl = await putObjectPresignedUrl(fileName,fileType);
+                
+                presignedUrls.push({ fileName, presignedUrl }); // Return URL to frontend
+
+                // Store only the S3 path (excluding query params) in MongoDB
+                storedAttachments.push({
+                    fileName,
+                    fileUrl: presignedUrl.split("?")[0]
+                });
+            }
+        }
+
         // Create a new task
         const newTask = new Task({
             task_name,
             description,
             assignee,
             assigner,
-            project
+            project,
+            attachments: storedAttachments
         });
 
         // Save the task to the database
@@ -42,7 +64,7 @@ export const createTask = async (req, res) => {
         const assigneeEmail = assigneeData.email;
 
          // Send Notification to the Assignee
-         await sendUserNotification(
+           sendUserNotification(
             assignee,
             assigneeEmail,
             "New Task Assigned",
@@ -51,12 +73,20 @@ export const createTask = async (req, res) => {
         );
 
 
-        sendResponse(res, HTTP_STATUS.CREATED, true, 'Task created successfully', newTask);
+       
+        // Send response with task details & pre-signed URLs
+        sendResponse(res, HTTP_STATUS.CREATED, true, "Task created successfully", {
+            task: newTask,
+            uploadUrls: presignedUrls // Send pre-signed URLs to frontend
+        });
+
     } catch (error) {
         console.error('Error creating task:', error);
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
     }
 };
+
+
 
 export const getTaskById = async (req, res) => {
     try {
@@ -76,12 +106,27 @@ export const getTaskById = async (req, res) => {
             fetchProjectById(task.project, token),
         ]);
 
+        // Generate pre-signed URLs for attachments
+        let attachmentsWithPresignedUrls = [];
+        if (task.attachments && task.attachments.length > 0) {
+            attachmentsWithPresignedUrls = await Promise.all(
+                task.attachments.map(async (attachment) => {
+                    const presignedUrl = await getObjectPresignedUrl(attachment.fileUrl);
+                    return {
+                        fileName: attachment.fileName,
+                        presignedUrl
+                    };
+                })
+            );
+        }
+
         // Construct the response with user and project details
         const taskWithDetails = {
             ...task.toObject(),
             assignee,
             assigner,
-            project
+            project,
+            attachments: attachmentsWithPresignedUrls
         };
 
         sendResponse(res, HTTP_STATUS.OK, true, 'Task retrieved successfully', taskWithDetails);
@@ -91,17 +136,48 @@ export const getTaskById = async (req, res) => {
     }
 };
 
-// update task
 export const updateTaskById = async (req, res) => {
     try {
         const { id } = req.params;
         const token = req.header("Authorization");
         const updateData = req.body;
+        const { attachments } = updateData;
 
-        // Find and update the task
-        const updatedTask = await Task.findByIdAndUpdate(id, updateData, { new: true });
+        // Find the existing task
+        const existingTask = await Task.findById(id);
+        if (!existingTask) {
+            return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, "Task not found");
+        }
+
+        let presignedUrls = []; // Store pre-signed URLs for frontend
+        let storedAttachments = existingTask.attachments || []; // Keep existing attachments
+
+        if (attachments && attachments.length > 0) {
+            for (let file of attachments) {
+                const { fileName, fileType } = file;
+                
+                // Generate pre-signed URL for each new attachment
+                const presignedUrl = await putObjectPresignedUrl(fileName,fileType);
+
+                presignedUrls.push({ fileName, presignedUrl }); // Send URL to frontend
+
+                // Store only the S3 file path in MongoDB
+                storedAttachments.push({
+                    fileName,
+                    fileUrl: presignedUrl.split("?")[0]
+                });
+            }
+        }
+
+        // Update task with new data and attachments
+        const updatedTask = await Task.findByIdAndUpdate(
+            id,
+            { ...updateData, attachments: storedAttachments },
+            { new: true }
+        );
+
         if (!updatedTask) {
-            return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'Task not found');
+            return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, "Task not found");
         }
 
         // Fetch updated Assignee, Assigner, and Project details
@@ -111,7 +187,7 @@ export const updateTaskById = async (req, res) => {
             fetchProjectById(updatedTask.project, token),
         ]);
 
-        // Construct response with updated user and project details
+        // Construct response with updated user, project details, and pre-signed URLs
         const updatedTaskWithDetails = {
             ...updatedTask.toObject(),
             assignee,
@@ -119,9 +195,13 @@ export const updateTaskById = async (req, res) => {
             project
         };
 
-        sendResponse(res, HTTP_STATUS.OK, true, 'Task updated successfully', updatedTaskWithDetails);
+        sendResponse(res, HTTP_STATUS.OK, true, "Task updated successfully", {
+            task: updatedTaskWithDetails,
+            uploadUrls: presignedUrls // Send pre-signed URLs to frontend
+        });
+
     } catch (error) {
-        console.error('Error updating task:', error);
+        console.error("Error updating task:", error);
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
     }
 };
@@ -165,7 +245,19 @@ export const getTasksByUserId = async (req, res) => {
         // Fetch user details from User Service
         const user = await fetchUserById(id, token);
 
-        sendResponse(res, HTTP_STATUS.OK, true, 'Tasks retrieved successfully', { user, tasks });
+        // Generate presigned URLs for attachments
+        const tasksWithPresignedUrls = await Promise.all(tasks.map(async (task) => {
+            if (task.attachments && task.attachments.length > 0) {
+                const updatedAttachments = await Promise.all(task.attachments.map(async (file) => ({
+                    ...file.toObject(),
+                    presignedUrl: await getObjectPresignedUrl(file.fileUrl) // Extract S3 key
+                })));
+                return { ...task.toObject(), attachments: updatedAttachments };
+            }
+            return task.toObject();
+        }));
+
+        sendResponse(res, HTTP_STATUS.OK, true, 'Tasks retrieved successfully', { user, tasks: tasksWithPresignedUrls });
     } catch (error) {
         console.error('Error retrieving tasks:', error);
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
@@ -179,11 +271,23 @@ export const getTasks = async (req, res) => {
 
         // Find tasks based on query filters
         const tasks = await Task.find(query);
-        if (!tasks.length) {
-            return sendResponse(res, HTTP_STATUS.NOT_FOUND, false, 'No tasks found');
+        let tasksWithPresignedUrls = []
+        if (tasks.length) {
+             // Generate presigned URLs for attachments
+            tasksWithPresignedUrls = await Promise.all(tasks.map(async (task) => {
+            if (task.attachments && task.attachments.length > 0) {
+                const updatedAttachments = await Promise.all(task.attachments.map(async (file) => ({
+                    ...file.toObject(),
+                    presignedUrl: await getObjectPresignedUrl(file.fileUrl.split("amazonaws.com/")[1]) // Extract S3 key
+                })));
+                return { ...task.toObject(), attachments: updatedAttachments };
+            }
+            return task.toObject();
+        }));
         }
 
-        sendResponse(res, HTTP_STATUS.OK, true, 'Tasks retrieved successfully', tasks);
+        // const finalData = tasks.length?tasksWithPresignedUrls:tasks
+        sendResponse(res, HTTP_STATUS.OK, true, 'Tasks retrieved successfully', tasksWithPresignedUrls );
     } catch (error) {
         console.error('Error retrieving tasks:', error);
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
@@ -201,18 +305,36 @@ export const searchTasks = async (req, res) => {
         }
 
         // Search tasks where title or description contains the query (case-insensitive)
-
+        
         const tasks = await Task.find({
             $or: [
-                { title: { $regex: query, $options: "i" } }, // Case-insensitive search in title
+                { task_name: { $regex: query, $options: "i" } }, // Case-insensitive search in title
                 { description: { $regex: query, $options: "i" } } // Case-insensitive search in description
             ]
         });
         console.log("taskssss->", tasks);
+        let tasksWithPresignedUrls = []
+        if (tasks.length) {
+            // Generate presigned URLs for attachments
+            tasksWithPresignedUrls = await Promise.all(tasks.map(async (task) => {
+            if (task.attachments && task.attachments.length > 0) {
+                const updatedAttachments = await Promise.all(task.attachments.map(async (file) => ({
+                    ...file.toObject(),
+                    presignedUrl: await getObjectPresignedUrl(file.fileUrl) // Extract S3 key
+                })));
+                return { ...task.toObject(), attachments: updatedAttachments };
+            }
+            return task.toObject();
+        }));
+        }
 
-        sendResponse(res, HTTP_STATUS.OK, true, "Tasks retrieved successfully", tasks);
+        // let finalData = tasks.length?tasksWithPresignedUrls:tasks
+        
+       console.log("tasksWithPresignedUrls----->",tasksWithPresignedUrls);
+        sendResponse(res, HTTP_STATUS.OK, true, "Tasks retrieved successfully", tasksWithPresignedUrls);
     } catch (error) {
         sendResponse(res, HTTP_STATUS.INTERNAL_SERVER_ERROR, false, error.message);
     }
 };
+
 

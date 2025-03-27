@@ -16,5 +16,10 @@ UserSchema.pre('save', async function (next) {
     next();
 });
 
+UserSchema.pre(/^find/, function (next) {
+    this.where({ isActive: true });
+    next();
+  });
+
 const User = mongoose.model('User', UserSchema);
 export default User;
